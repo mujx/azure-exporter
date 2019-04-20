@@ -1,5 +1,7 @@
 ## azure-exporter
 
+[![Build status](https://ci.appveyor.com/api/projects/status/36fhpymbr1wma88r/branch/master?svg=true)](https://ci.appveyor.com/project/mujx/azure-exporter/branch/master)
+
 Export metrics from Azure in the Prometheus exposition format.
 
 ### Running
