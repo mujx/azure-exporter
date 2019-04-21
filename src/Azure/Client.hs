@@ -259,7 +259,7 @@ mkLoginForm (ClientID clientId_) (ClientSecret clientSecret_) = LoginForm
 mapLoginToken :: ClientConfig -> IO ClientConfig
 mapLoginToken conf = case clientSecret conf of
   Just secret -> do
-    liftIO $ putStrLn "trying to retrieve the login token"
+    liftIO $ putStrLn "Trying to retrieve the login token .."
     res <- try (getAccessToken tenantId' loginForm)
     case res of
       Left (R.VanillaHttpException _) -> return conf
@@ -271,7 +271,7 @@ mapLoginToken conf = case clientSecret conf of
   Nothing -> do
     liftIO
       $  putStrLn
-      $  "no client secret was given for ClientID: "
-      <> unpack (clientId conf)
-      <> " so login cannot be completed"
+      $  "Client Secret is missing for Client ID ("
+      <> (unpack . clientId) conf
+      <> "). Login cannot be completed."
     return conf

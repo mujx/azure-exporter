@@ -1,6 +1,9 @@
 build:
 	cabal new-build -fdev
 
+run:
+	cabal new-run -fdev
+
 up:
 	docker-compose up
 

@@ -8,6 +8,7 @@ where
 import           Data.Monoid                    ( mempty )
 import qualified Data.Text                     as T
 import qualified Data.Map                      as M
+import           Data.Maybe                     ( catMaybes )
 import           Data.Text.Lazy.Builder         ( fromText
                                                 , fromString
                                                 , toLazyText
@@ -151,9 +152,7 @@ extractResourceLabels resourceId = M.fromList
   allItems = map fromText (T.splitOn "/" resourceId)
 
   toList :: Builder -> Maybe Builder -> [(Builder, Builder)]
-  toList keyName expr = case expr of
-    Nothing -> []
-    Just v  -> [(keyName, v)]
+  toList keyName expr = catMaybes [(,) keyName <$> expr]
 
   resourceGroup :: [(Builder, Builder)]
   resourceGroup = toList "resource_group" (maybeElem 4 allItems)

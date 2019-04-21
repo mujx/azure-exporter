@@ -53,11 +53,10 @@ instance Y.ToJSON ClientConfig
 mapSecrets :: ClientConfig -> IO ClientConfig
 mapSecrets conf = do
   val <- lookupEnv varName
-  liftIO $ putStrLn "reading clientSecret from env"
   case val of
     Just a  -> return $ updateConfig $ Just $ T.pack a
     Nothing -> do
-      liftIO $ putStrLn $ "environment variable " <> varName <> " was not found"
+      liftIO $ putStrLn $ "Environment variable " <> varName <> " is empty."
       return conf
  where
   varName = T.unpack $ clientSecretEnvVar conf
