@@ -171,9 +171,10 @@ metricsHandler = get "/metrics" $ do
     <> "% success."
     )
 
-  -- The tokens expired. Try to re-login & obtain new tokens.
   if any is401 errors
     then do
+      azureM $ logMs K.WarningS "There are expired tokens. Trying to re-login."
+
       le      <- azureM K.getLogEnv
       newConf <- liftIO $ P.mapM (mapLoginToken le) conf
       azureM $ modify $ \c -> c { clientConfig = newConf }
