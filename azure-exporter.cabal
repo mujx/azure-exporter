@@ -20,29 +20,39 @@ Flag dev
 
 executable azure-exporter
   main-is:             Main.hs
+  ghc-options:         -Wall
+                       -Wcompat
+                       -Wincomplete-record-updates
+                       -Wincomplete-uni-patterns
+                       -Wredundant-constraints
+                       -rtsopts -with-rtsopts=-N
+                       -threaded
   if flag(dev)
-    ghc-options:       -O0 -Wall
-  ghc-options:         -O2 -Wall -rtsopts -threaded
+    ghc-options:       -O0
+  else
+    ghc-options:       -O2
   other-modules:       Azure.Exporter
                      , Azure.Config
                      , Azure.Client
                      , Paths_azure_exporter
+                     , Logger
   build-depends:       base                  ^>= 4.12.0 && < 5
                      , aeson                  == 1.4.*
                      , aeson-casing           == 0.2.*
                      , bytestring             == 0.10.*
                      , containers             == 0.6.*
-                     , data-default-class     == 0.1.*
                      , http-client            == 0.6.*
                      , http-types             == 0.12.*
+                     , katip                  == 0.8.*
                      , monad-parallel         == 0.7.*
-                     , optparse-applicative   == 0.14.*
                      , mtl                    == 2.2.*
+                     , optparse-applicative   == 0.14.*
                      , req                    == 2.0.*
                      , scotty                 == 0.11.*
                      , split                  == 0.2.*
                      , stm                    == 2.5.*
                      , text                   == 1.2.*
+                     , unordered-containers   == 0.2.10.*
                      , wai                    == 3.2.*
                      , wai-extra              == 3.0.*
                      , yaml                   == 0.11.*

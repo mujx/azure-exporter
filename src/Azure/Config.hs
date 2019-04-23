@@ -9,12 +9,14 @@ module Azure.Config
   )
 where
 
-import           Control.Monad.IO.Class         ( liftIO )
 import qualified Data.ByteString.Char8         as B
 import qualified Data.Text                     as T
 import qualified Data.Yaml                     as Y
 import           GHC.Generics
 import           System.Environment            as E
+import           Katip                         as K
+
+import           Logger
 
 data AzureResource = AzureResource
   { name          :: T.Text
@@ -50,13 +52,15 @@ instance Y.FromJSON ClientConfig
 
 instance Y.ToJSON ClientConfig
 
-mapSecrets :: ClientConfig -> IO ClientConfig
-mapSecrets conf = do
+mapSecrets :: K.LogEnv -> ClientConfig -> IO ClientConfig
+mapSecrets logenv conf = do
   val <- lookupEnv varName
   case val of
     Just a  -> return $ updateConfig $ Just $ T.pack a
     Nothing -> do
-      liftIO $ putStrLn $ "Environment variable " <> varName <> " is empty."
+      K.runKatipT logenv $ logMs
+        K.ErrorS
+        (T.pack $ "Environment variable " <> varName <> " is empty.")
       return conf
  where
   varName = T.unpack $ clientSecretEnvVar conf

@@ -21,6 +21,7 @@ module Azure.Client
   )
 where
 
+import qualified Katip                         as K
 import           Control.Monad.Except
 import qualified Control.Monad.Parallel        as P
 import           Azure.Config
@@ -44,6 +45,8 @@ import qualified Network.HTTP.Req              as R
 import           Network.HTTP.Req               ( (=:)
                                                 , (/:)
                                                 )
+
+import           Logger
 
 apiVersion :: Text
 apiVersion = "2018-01-01"
@@ -256,11 +259,13 @@ mkLoginForm (ClientID clientId_) (ClientSecret clientSecret_) = LoginForm
   , formClientSecret = clientSecret_
   }
 
-mapLoginToken :: ClientConfig -> IO ClientConfig
-mapLoginToken conf = case clientSecret conf of
+mapLoginToken :: K.LogEnv -> ClientConfig -> IO ClientConfig
+mapLoginToken logenv conf = case clientSecret conf of
   Just secret -> do
-    liftIO $ putStrLn "Trying to retrieve the login token .."
+    K.runKatipT logenv $ logMs K.InfoS "Trying to login"
+
     res <- try (getAccessToken tenantId' loginForm)
+
     case res of
       Left (R.VanillaHttpException _) -> return conf
       Left (R.JsonHttpException _) -> return conf
@@ -269,9 +274,10 @@ mapLoginToken conf = case clientSecret conf of
     loginForm = mkLoginForm (ClientID (clientId conf)) (ClientSecret secret)
     tenantId' = tenantId conf
   Nothing -> do
-    liftIO
-      $  putStrLn
-      $  "Client Secret is missing for Client ID ("
-      <> (unpack . clientId) conf
+    K.runKatipT logenv $ logMs
+      K.ErrorS
+      (  "Client Secret is missing for Client ID ("
+      <> clientId conf
       <> "). Login cannot be completed."
+      )
     return conf
