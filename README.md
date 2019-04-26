@@ -41,11 +41,12 @@ curl http://localhost:3000/metrics
 $ azure-exporter --help
 Azure Exporter :: v0.1.0.0
 
-Usage: azure-exporter [-f|--config-file FILE]
+Usage: azure-exporter [-f|--config-file FILE] [-l|--list-definitions]
   Web service that retrieves metrics from Azure and exports them for Prometheus.
 
 Available options:
   -f,--config-file FILE    Exporter settings (default: "config.yaml")
+  -l,--list-definitions    List the metric definitions for all resources
   -h,--help                Show this help text
 ```
 
@@ -54,19 +55,19 @@ Available options:
 ```yaml
 ---
 - resources:
-  - name: /resourceGroups/my-resource-group/providers/Microsoft.DBforPostgreSQL/servers/my-db-01
-    # All the aggregations will be available for each metric (Total, Maximum, Minimum, Average).
-    metrics:
-      - active_connections
-      - cpu_percent
-      - network_bytes_egress
-      - network_bytes_ingress
-  - name: /resourceGroups/my-resource-group/providers/Microsoft.DBforPostgreSQL/servers/my-db-02
-    metrics:
-      - active_connections
-      - cpu_percent
-      - pg_replica_log_delay_in_bytes
-      - pg_replica_log_delay_in_seconds
+    - name: /resourceGroups/my-resource-group/providers/Microsoft.DBforPostgreSQL/servers/my-db-01
+      # All the aggregations will be available for each metric (Total, Maximum, Minimum, Average).
+      metrics:
+        - active_connections
+        - cpu_percent
+        - network_bytes_egress
+        - network_bytes_ingress
+    - name: /resourceGroups/my-resource-group/providers/Microsoft.DBforPostgreSQL/servers/my-db-02
+      metrics:
+        - active_connections
+        - cpu_percent
+        - pg_replica_log_delay_in_bytes
+        - pg_replica_log_delay_in_seconds
   # Retrieve the Subscription ID from the Azure portal.
   # https://docs.bitnami.com/azure/faq/administration/find-subscription-id/
   subscriptionId: <subscriptionId>
@@ -85,10 +86,10 @@ Available options:
 
 # You can retrieve metrics from multiple Azure subscriptions (e.g different environments).
 - resources:
-  - name: /resourceGroups/my-resource-group-02/providers/Microsoft.DBforPostgreSQL/servers/my-db-01
-    metrics:
-      - active_connections
-      - cpu_percent
+    - name: /resourceGroups/my-resource-group-02/providers/Microsoft.DBforPostgreSQL/servers/my-db-01
+      metrics:
+        - active_connections
+        - cpu_percent
   subscriptionId: <secondSubscriptionId>
   tenantId: <secondTenantId>
   clientId: <secondClientId>
