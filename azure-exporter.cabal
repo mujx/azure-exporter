@@ -47,6 +47,7 @@ executable azure-exporter
                      , monad-parallel         == 0.7.*
                      , mtl                    == 2.2.*
                      , optparse-applicative   == 0.14.*
+                     , aeson-pretty           == 0.8.*
                      , req                    == 2.0.*
                      , scotty                 == 0.11.*
                      , split                  == 0.2.*

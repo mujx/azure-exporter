@@ -14,10 +14,13 @@ module Azure.Client
   , MetricValue(..)
   , TimeseriesData(..)
   , MetricTimeseries(..)
+  , MetricDefinitionResponse(..)
+  , AzureMetricDefinitionResponse(..)
   , MetricName(..)
   , getAccessToken
   , mapLoginToken
   , getMetricValue
+  , getMetricDefinitions
   )
 where
 
@@ -51,6 +54,22 @@ import           Logger
 apiVersion :: Text
 apiVersion = "2018-01-01"
 
+metricDefiniotionsEndpoint
+  :: Text
+     -- ^ The Azure Subscription ID.
+  -> Text
+     -- ^ The resource name as a URL path.
+  -> R.Url 'R.Https
+     -- ^ The full parsed HTTPS URL.
+metricDefiniotionsEndpoint subid resource =
+  R.https "management.azure.com"
+    /: "subscriptions"
+    /: subid
+    /: rmLeadingSlash resource
+    /: "providers"
+    /: "microsoft.insights"
+    /: "metricDefinitions"
+
 metricValueEndpoint
   :: Text
      -- ^ The Azure Subscription ID.
@@ -66,9 +85,10 @@ metricValueEndpoint subid resource =
     /: "providers"
     /: "microsoft.insights"
     /: "metrics"
- where
-  rmLeadingSlash (stripPrefix "/" -> Just xs) = xs
-  rmLeadingSlash x                            = x
+
+rmLeadingSlash :: Text -> Text
+rmLeadingSlash (stripPrefix "/" -> Just xs) = xs
+rmLeadingSlash x                            = x
 
 loginUrl :: Text -> R.Url 'R.Https
 loginUrl tid =
@@ -86,6 +106,25 @@ noPrefix = firstToLower . dropWhile C.isLower
 
 noPrefixOptions :: Options
 noPrefixOptions = defaultOptions { fieldLabelModifier = noPrefix }
+
+newtype AzureMetricDefinitionResponse = AzureMetricDefinitionResponse
+  { defValue :: [MetricDefinitionResponse]
+  } deriving (Show, Generic)
+
+instance FromJSON AzureMetricDefinitionResponse where
+  parseJSON = genericParseJSON noPrefixOptions
+
+data MetricDefinitionResponse = MetricDefinitionResponse
+  { mdId                     :: Text
+  , mdIsDimensionRequired    :: Bool
+  , mdPrimaryAggregationType :: Text
+  , mdResourceId             :: Text
+  , mdUnit                   :: Text
+  , mdName                   :: MetricName
+  } deriving (Show, Generic)
+
+instance FromJSON MetricDefinitionResponse where
+  parseJSON = genericParseJSON noPrefixOptions
 
 data LoginResponse = LoginResponse
   { accessToken  :: Text
@@ -207,6 +246,30 @@ newtype HttpM a = HttpM
 instance R.MonadHttp HttpM where
   handleHttpException = throwError
 
+getMetricDefinitions
+  :: Text
+    -- ^ The Azure Subscription ID.
+  -> Text
+    -- ^ The access token obtained by OAuth login.
+  -> AzureResource
+    -- ^ The resource & the metrics that will be queried.
+  -> HttpM AzureMetricDefinitionResponse
+    -- ^ Parsed response from the endpoint.
+getMetricDefinitions subId tkn azResource = do
+  let headers     = R.header "Authorization" (setToken tkn)
+  let queryParams = "api-version" =: apiVersion
+  let options     = headers <> queryParams
+
+  r <- R.req R.GET endpoint R.NoReqBody R.jsonResponse options
+
+  return (R.responseBody r :: AzureMetricDefinitionResponse)
+ where
+  endpoint :: R.Url 'R.Https
+  endpoint = metricDefiniotionsEndpoint subId (name azResource)
+
+  setToken :: Text -> BS.ByteString
+  setToken token = encodeUtf8 $ "Bearer " <> token
+
 getMetricValue
   :: Text
     -- ^ The Azure Subscription ID.
@@ -228,7 +291,6 @@ getMetricValue subId tkn azResource = do
   r <- R.req R.GET endpoint R.NoReqBody R.jsonResponse options
 
   return (R.responseBody r :: MetricValueResponse)
-
  where
   endpoint :: R.Url 'R.Https
   endpoint = metricValueEndpoint subId (name azResource)

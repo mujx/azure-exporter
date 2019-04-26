@@ -19,8 +19,10 @@ import           Control.Monad.IO.Class         ( liftIO )
 import qualified Control.Monad.Parallel        as P
 import           Control.Monad.Reader
 import qualified Data.Aeson                    as A
+import           Data.Aeson                     ( (.=) )
+import           Data.Aeson.Encode.Pretty       ( encodePretty )
 import qualified Data.Aeson.Types              as AT
-import qualified Data.ByteString.Lazy          as LBS
+import qualified Data.ByteString.Lazy.Char8    as LBS
 import           Data.Either                    ( partitionEithers )
 import           Data.Maybe                     ( fromMaybe )
 import qualified Data.String                   as S
@@ -205,17 +207,16 @@ metricsHandler = get "/metrics" $ do
         R.VanillaHttpException (HttpExceptionRequest _ (StatusCodeException _ b))
           -> json (A.decode (LBS.fromStrict b) :: Maybe ExporterError)
         R.JsonHttpException jsonError -> json $ AzureError
-          { azError = MetricsApiError { code    = "JsonHttpException"
-                                      , message = pack jsonError
-                                      }
+          { azError = MetricsApiError
+            { code    = "JsonHttpException"
+            , message = pack jsonError
+            }
           }
         _ -> json $ AzureError
-          { azError =
-            MetricsApiError
-              { code    = "UnknownError"
-              , message =
-                "Something went wrong. Check the logs for more details."
-              }
+          { azError = MetricsApiError
+            { code    = "UnknownError"
+            , message = "Something went wrong. Check the logs for more details."
+            }
           }
 
 setupLogger :: (Eq a, S.IsString a) => a -> Wai.Middleware
@@ -227,19 +228,57 @@ setupLogEnv runEnv = if runEnv == "production" then prodEnv else devEnv
 runIO :: TVar AppState -> AzureM IO a -> IO a
 runIO state m = runReaderT (runAzureM m) state
 
-newtype CliOpts = CliOpts
-    { optFile :: String
+data CliOpts = CliOpts
+    { optFile            :: String
+    , optListDefinitions :: Bool
     }
 
 cliOpts :: Opt.Parser CliOpts
-cliOpts = CliOpts <$> Opt.strOption
-  (  Opt.long "config-file"
-  <> Opt.short 'f'
-  <> Opt.help "Exporter settings"
-  <> Opt.metavar "FILE"
-  <> Opt.showDefault
-  <> Opt.value "config.yaml"
-  )
+cliOpts =
+  CliOpts
+    <$> Opt.strOption
+          (  Opt.long "config-file"
+          <> Opt.short 'f'
+          <> Opt.help "Exporter settings"
+          <> Opt.metavar "FILE"
+          <> Opt.showDefault
+          <> Opt.value "config.yaml"
+          )
+    <*> Opt.switch
+          (  Opt.long "list-definitions"
+          <> Opt.help "List the metric definitions for all resources"
+          <> Opt.short 'l'
+          )
+
+
+showListDefinitions :: K.LogEnv -> [ClientConfig] -> IO ()
+showListDefinitions logenv c = do
+  K.runKatipT logenv $ logMs K.InfoS "Fetching metric definitions"
+  P.mapM_ fetchDefinitions c
+
+fetchDefinitions :: ClientConfig -> IO ()
+fetchDefinitions conf = do
+  let subid = subscriptionId conf
+  let tkn   = fromMaybe "" (loginToken conf)
+  results <- liftIO $ P.mapM
+    (runExceptT . runHttpM . getMetricDefinitions subid tkn)
+    (resources conf)
+
+  let (errs, metricResults) = partitionEithers results
+
+  if null errs then mapM_ prettyPrintDefinitions metricResults else print errs
+
+prettyPrintDefinitions :: AzureMetricDefinitionResponse -> IO ()
+prettyPrintDefinitions r = do
+  let values = defValue r
+
+  if null values
+    then return ()
+    else do
+      let resourceId = head $ map mdResourceId values
+      let names      = map (nameValue . mdName) values
+
+      LBS.putStrLn $ encodePretty $ A.object [resourceId .= names]
 
 
 main :: IO ()
@@ -251,12 +290,15 @@ main = do
   case confFile of
     Left  err         -> error err
     Right initialConf -> do
+      -- TODO: Make logging env configurable from a flag
       logenv        <- setupLogEnv runEnv
       validConf     <- validateConfig logenv initialConf
       initialConfig <- newTVarIO
-        (AppState { clientConfig = validConf, logEnv = logenv })
+        (AppState {clientConfig = validConf, logEnv = logenv})
 
-      scottyT port (runIO initialConfig) (app runEnv)
+      if optListDefinitions parsedOpts
+        then showListDefinitions logenv validConf
+        else scottyT port (runIO initialConfig) (app runEnv)
  where
   opts = Opt.info
     (cliOpts <**> Opt.helper)
