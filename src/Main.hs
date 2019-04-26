@@ -222,8 +222,9 @@ metricsHandler = get "/metrics" $ do
 setupLogger :: (Eq a, S.IsString a) => a -> Wai.Middleware
 setupLogger runEnv = if runEnv == "production" then logStdout else logStdoutDev
 
-setupLogEnv :: (Eq a, S.IsString a) => a -> IO K.LogEnv
-setupLogEnv runEnv = if runEnv == "production" then prodEnv else devEnv
+setupLogEnv :: (Eq a, S.IsString a) => a -> K.Severity -> IO K.LogEnv
+setupLogEnv runEnv sev =
+  if runEnv == "production" then prodEnv sev else devEnv sev
 
 runIO :: TVar AppState -> AzureM IO a -> IO a
 runIO state m = runReaderT (runAzureM m) state
@@ -231,6 +232,7 @@ runIO state m = runReaderT (runAzureM m) state
 data CliOpts = CliOpts
     { optFile            :: String
     , optListDefinitions :: Bool
+    , optLogLevel        :: String
     }
 
 cliOpts :: Opt.Parser CliOpts
@@ -247,9 +249,25 @@ cliOpts =
     <*> Opt.switch
           (  Opt.long "list-definitions"
           <> Opt.help "List the metric definitions for all resources"
+          <> Opt.short 'd'
+          )
+    <*> Opt.strOption
+          (  Opt.long "log-level"
+          <> Opt.help
+               "Specify the log severity level (debug, info, warn, error)"
+          <> Opt.metavar "LEVEL"
+          <> Opt.showDefault
+          <> Opt.value "info"
           <> Opt.short 'l'
           )
 
+toSeverity :: String -> K.Severity
+toSeverity s = case s of
+  "debug" -> K.DebugS
+  "info"  -> K.InfoS
+  "warn"  -> K.WarningS
+  "error" -> K.ErrorS
+  _       -> K.InfoS
 
 showListDefinitions :: K.LogEnv -> [ClientConfig] -> IO ()
 showListDefinitions logenv c = do
@@ -290,8 +308,7 @@ main = do
   case confFile of
     Left  err         -> error err
     Right initialConf -> do
-      -- TODO: Make logging env configurable from a flag
-      logenv        <- setupLogEnv runEnv
+      logenv        <- setupLogEnv runEnv (toSeverity $ optLogLevel parsedOpts)
       validConf     <- validateConfig logenv initialConf
       initialConfig <- newTVarIO
         (AppState {clientConfig = validConf, logEnv = logenv})

@@ -30,11 +30,11 @@ logMs :: Katip m => Severity -> Text -> m ()
 logMs sev msg =
   logMsg (Namespace {unNamespace = []}) sev (LogStr {unLogStr = fromText msg})
 
-devEnv :: IO LogEnv
-devEnv = devLogEnv "" (Environment {getEnvironment = "dev"}) DebugS V3
+devEnv :: Severity -> IO LogEnv
+devEnv sev = devLogEnv "" (Environment {getEnvironment = "dev"}) sev V3
 
-prodEnv :: IO LogEnv
-prodEnv = prodLogEnv "" (Environment {getEnvironment = "prod"}) WarningS V1
+prodEnv :: Severity -> IO LogEnv
+prodEnv sev = prodLogEnv "" (Environment {getEnvironment = "prod"}) sev V3
 
 devLogEnv :: Text -> Environment -> Severity -> Verbosity -> IO LogEnv
 devLogEnv appName env sev verb = do

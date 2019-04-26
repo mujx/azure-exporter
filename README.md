@@ -38,15 +38,16 @@ curl http://localhost:3000/metrics
 ### Options
 
 ```
-$ azure-exporter --help
 Azure Exporter :: v0.1.0.0
 
-Usage: azure-exporter [-f|--config-file FILE] [-l|--list-definitions]
+Usage: azure-exporter [-f|--config-file FILE] [-d|--list-definitions]
+                      [-l|--log-level LEVEL]
   Web service that retrieves metrics from Azure and exports them for Prometheus.
 
 Available options:
   -f,--config-file FILE    Exporter settings (default: "config.yaml")
-  -l,--list-definitions    List the metric definitions for all resources
+  -d,--list-definitions    List the metric definitions for all resources
+  -l,--log-level LEVEL     Specify the log severity level (debug, info, warn, error) (default: "info")
   -h,--help                Show this help text
 ```
 
