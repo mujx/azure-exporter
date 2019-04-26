@@ -253,21 +253,12 @@ cliOpts =
           )
     <*> Opt.strOption
           (  Opt.long "log-level"
-          <> Opt.help
-               "Specify the log severity level (debug, info, warn, error)"
+          <> Opt.help "Specify the log severity level"
           <> Opt.metavar "LEVEL"
           <> Opt.showDefault
           <> Opt.value "info"
           <> Opt.short 'l'
           )
-
-toSeverity :: String -> K.Severity
-toSeverity s = case s of
-  "debug" -> K.DebugS
-  "info"  -> K.InfoS
-  "warn"  -> K.WarningS
-  "error" -> K.ErrorS
-  _       -> K.InfoS
 
 showListDefinitions :: K.LogEnv -> [ClientConfig] -> IO ()
 showListDefinitions logenv c = do
@@ -308,7 +299,9 @@ main = do
   case confFile of
     Left  err         -> error err
     Right initialConf -> do
-      logenv        <- setupLogEnv runEnv (toSeverity $ optLogLevel parsedOpts)
+      logenv <- setupLogEnv
+        runEnv
+        (fromMaybe K.InfoS (K.textToSeverity $ pack $ optLogLevel parsedOpts))
       validConf     <- validateConfig logenv initialConf
       initialConfig <- newTVarIO
         (AppState {clientConfig = validConf, logEnv = logenv})

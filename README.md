@@ -47,7 +47,7 @@ Usage: azure-exporter [-f|--config-file FILE] [-d|--list-definitions]
 Available options:
   -f,--config-file FILE    Exporter settings (default: "config.yaml")
   -d,--list-definitions    List the metric definitions for all resources
-  -l,--log-level LEVEL     Specify the log severity level (debug, info, warn, error) (default: "info")
+  -l,--log-level LEVEL     Specify the log severity level
   -h,--help                Show this help text
 ```
 
