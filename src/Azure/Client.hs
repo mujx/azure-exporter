@@ -180,6 +180,7 @@ getAccessToken tid loginForm = R.runReq R.defaultHttpConfig $ do
 --
 data TimeseriesData = TimeseriesData
   { dataTimeStamp :: Text
+  , dataCount     :: Maybe Double
   , dataTotal     :: Maybe Double
   , dataAverage   :: Maybe Double
   , dataMinimum   :: Maybe Double
@@ -299,7 +300,7 @@ getMetricValue subId tkn azResource = do
   setToken token = encodeUtf8 $ "Bearer " <> token
 
   aggregations :: Text
-  aggregations = "Total,Average,Minimum,Maximum"
+  aggregations = "Count,Total,Average,Minimum,Maximum"
 
   threeMinTimespan :: Text
   threeMinTimespan = "PT3M"

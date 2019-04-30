@@ -58,11 +58,12 @@ renderMetricValue v = concatB $ map renderSingleMetric aggregationPairs
     metricSpec (name' <> "_" <> ext) desc' value_ id'
 
   aggregationPairs = catMaybePairs $ zip
-    ["Total", "Average", "Minimum", "Maximum"]
-    [totalV, avgV, minV, maxV]
+    ["Count", "Total", "Average", "Minimum", "Maximum"]
+    [countV, totalV, avgV, minV, maxV]
 
   catMaybePairs ls = [ (x, y) | (x, Just y) <- ls ]
 
+  countV = dataCount =<< elemValue
   totalV = dataTotal =<< elemValue
   avgV   = dataAverage =<< elemValue
   minV   = dataMinimum =<< elemValue
