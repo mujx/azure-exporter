@@ -5,7 +5,6 @@ module Azure.Exporter
   )
 where
 
-import           Data.Monoid                    ( mempty )
 import qualified Data.Text                     as T
 import qualified Data.Map                      as M
 import           Data.Maybe                     ( catMaybes )
@@ -27,25 +26,26 @@ joinB s (x : xs) = x <> s <> joinB s xs
 maybeElem :: Int -> [a] -> Maybe a
 maybeElem n l = if length l >= n then Just (l !! n) else Nothing
 
-concatB :: [Builder] -> Builder
-concatB = foldl (<>) mempty
+unique :: Eq a => [a] -> [a]
+unique []       = []
+unique (x : xs) = x : unique (filter (x /=) xs)
 
 -- Convert the Azure response to the exposition format.
 renderMetrics
   :: [[MetricValueResponse]]
   -- ^ A list of metric values for each subscription.
-  -> L.Text
+  -> [L.Text]
   -- ^ Metrics in the Prometheus exposition format.
-renderMetrics = toLazyText . concatB . map render'
+renderMetrics = unique . map toLazyText . concatMap render'
  where
-  render' :: [MetricValueResponse] -> Builder
-  render' = concatB . map renderValueResponse
+  render' :: [MetricValueResponse] -> [Builder]
+  render' = concatMap renderValueResponse
 
-  renderValueResponse :: MetricValueResponse -> Builder
-  renderValueResponse v = concatB $ map renderMetricValue (metricValue v)
+  renderValueResponse :: MetricValueResponse -> [Builder]
+  renderValueResponse v = concatMap renderMetricValue (metricValue v)
 
-renderMetricValue :: MetricValue -> Builder
-renderMetricValue v = concatB $ map renderSingleMetric aggregationPairs
+renderMetricValue :: MetricValue -> [Builder]
+renderMetricValue v = concatMap renderSingleMetric aggregationPairs
  where
   id'       = metricId v
   name'     = nameValue $ metricName v
@@ -75,21 +75,13 @@ typeLine n = hashTag <> space <> typeStr <> space <> n <> space <> gaugeType
 helpLine :: Builder -> Builder -> Builder
 helpLine n desc = hashTag <> space <> helpStr <> space <> n <> space <> desc
 
-metricHeader :: Builder -> Builder -> Builder
-metricHeader n desc = help' <> newline <> type'
- where
-  help' = helpLine n desc
-  type' = typeLine n
-
-metricSpec :: T.Text -> T.Text -> Double -> T.Text -> Builder
-metricSpec mName mDesc mValue resId =
-  metricHeader name' (fromText mDesc)
-    <> newline
-    <> metricLine name' mValue resId
-    <> newline
+metricSpec :: T.Text -> T.Text -> Double -> T.Text -> [Builder]
+metricSpec mName mDesc mValue resId = [help', type', metricLine name' mValue resId]
  where
   name' =
     fromText $ (T.toLower . T.replace " " "_" . T.replace "/" "_per_") mName
+  help' = helpLine name' (fromText mDesc)
+  type' = typeLine name'
 
 metricLine
   :: Builder
@@ -129,9 +121,6 @@ rightBracket = fromText "}"
 
 space :: Builder
 space = fromText " "
-
-newline :: Builder
-newline = fromText "\n"
 
 gaugeType :: Builder
 gaugeType = fromText "gauge"

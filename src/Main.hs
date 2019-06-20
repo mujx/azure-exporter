@@ -195,7 +195,7 @@ metricsHandler = get "/metrics" $ do
   -- ^ A list of metrics for each resource on each subscription
     -> ActionT L.Text (AzureM IO) ()
   sendResponse e v = if null e
-    then text $ renderMetrics v
+    then text $ L.intercalate "\n" $ renderMetrics v
     else do
       let firstErr = head e
 
