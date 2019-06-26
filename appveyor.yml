@@ -1,9 +1,9 @@
 image: Ubuntu1804
 
 build_script:
-- curl -sSL https://get.haskellstack.org/ | sh
-- stack setup
-- stack build --ghc-options -j
+  - curl -sSL https://get.haskellstack.org/ | sh
+  - stack setup
+  - stack build --ghc-options -j
 
 cache:
-- /home/appveyor/.stack
+  - /home/appveyor/.stack

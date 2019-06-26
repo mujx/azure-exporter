@@ -325,7 +325,9 @@ mkLoginForm (ClientID clientId_) (ClientSecret clientSecret_) = LoginForm
 mapLoginToken :: K.LogEnv -> ClientConfig -> IO ClientConfig
 mapLoginToken logenv conf = case clientSecret conf of
   Just secret -> do
-    K.runKatipT logenv $ logMs K.InfoS "Trying to login"
+    K.runKatipT logenv $ logMs
+      K.InfoS
+      ("Trying to login on subscription: " <> subscriptionId conf)
 
     res <- try (getAccessToken tenantId' loginForm)
 

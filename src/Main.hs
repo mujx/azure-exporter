@@ -1,7 +1,10 @@
 {-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE GADTs                      #-}
 {-# LANGUAGE TypeOperators              #-}
 {-# LANGUAGE TypeSynonymInstances       #-}
 
@@ -13,11 +16,14 @@ where
 import           Data.Version                   ( showVersion )
 import           Paths_azure_exporter           ( version )
 
+import           System.Exit                    ( die )
 import           Control.Concurrent.STM
 import           Control.Monad.Except
+import           Control.Exception              ( throw )
+import           Control.Monad.Reader.Class
 import           Control.Monad.IO.Class         ( liftIO )
 import qualified Control.Monad.Parallel        as P
-import           Control.Monad.Reader
+import           Control.Monad.Reader          as MR
 import qualified Data.Aeson                    as A
 import           Data.Aeson                     ( (.=) )
 import           Data.Aeson.Encode.Pretty       ( encodePretty )
@@ -69,8 +75,8 @@ data AppState = AppState
     -- ^ Katip configuration.
     }
 
-newtype AzureM m a = AzureM
-    { runAzureM :: ReaderT (TVar AppState) m a
+newtype AppMonad m a = AppMonad
+    { runAppM :: ReaderT (TVar AppState) m a
     } deriving ( Applicative
                , Functor
                , Monad
@@ -78,21 +84,24 @@ newtype AzureM m a = AzureM
                , MonadReader (TVar AppState)
                )
 
-instance (MonadIO m) => K.Katip (AzureM m) where
+instance (MonadIO m) => K.Katip (AppMonad m) where
   getLogEnv = gets logEnv
-  localLogEnv f (AzureM m) = do
+  localLogEnv f (AppMonad m) = do
     modify (\c -> c { logEnv = f $ logEnv c })
-    AzureM m
+    AppMonad m
+
+instance (MonadIO m) => R.MonadHttp (AppMonad m) where
+    handleHttpException = throw
 
 -- Be explicit when we are operating at the 'AzureM' layer.
-azureM :: (MonadTrans t, Monad m) => AzureM m a -> t (AzureM m) a
-azureM = lift
+appM :: (MonadTrans t, Monad m) => AppMonad m a -> t (AppMonad m) a
+appM = lift
 
 -- Helpers to make this feel more like a state monad.
-gets :: MonadIO m => (AppState -> b) -> AzureM m b
+gets :: MonadIO m => (AppState -> b) -> AppMonad m b
 gets f = f <$> (ask >>= liftIO . readTVarIO)
 
-modify :: MonadIO m => (AppState -> AppState) -> AzureM m ()
+modify :: MonadIO m => (AppState -> AppState) -> AppMonad m ()
 modify f = ask >>= liftIO . atomically . flip modifyTVar' f
 
 readListenPort :: Integer -> Text -> IO Integer
@@ -138,15 +147,15 @@ instance A.ToJSON ExporterError where
 --
 -- Handlers
 --
-homeHandler :: ScottyT L.Text (AzureM IO) ()
+homeHandler :: ScottyT L.Text (AppMonad IO) ()
 homeHandler =
   get "/" $ html "<h1> Azure Exporter </h1> <a href='/metrics'>Metrics</a>"
 
-metricsHandler :: ScottyT L.Text (AzureM IO) ()
+metricsHandler :: ScottyT L.Text (AppMonad IO) ()
 metricsHandler = get "/metrics" $ do
-  conf <- azureM $ gets clientConfig
+  conf <- appM $ gets clientConfig
 
-  azureM $ logMs
+  appM $ logMs
     K.DebugS
     (  pack
     $  "Preparing to collect metrics from "
@@ -161,7 +170,7 @@ metricsHandler = get "/metrics" $ do
   let totalErrors             = length errors
   let totalQueries            = length results
 
-  azureM $ logMs
+  appM $ logMs
     K.DebugS
     (  pack
     $  "Received "
@@ -175,11 +184,11 @@ metricsHandler = get "/metrics" $ do
 
   if any is401 errors
     then do
-      azureM $ logMs K.WarningS "There are expired tokens. Trying to re-login."
+      appM $ logMs K.WarningS "There are expired tokens. Trying to re-login."
 
-      le      <- azureM K.getLogEnv
+      le      <- appM K.getLogEnv
       newConf <- liftIO $ P.mapM (mapLoginToken le) conf
-      azureM $ modify $ \c -> c { clientConfig = newConf }
+      appM $ modify $ \c -> c { clientConfig = newConf }
 
       newResults <- liftIO
         $ P.mapM (runExceptT . runHttpM . collectMetrics) newConf
@@ -193,13 +202,13 @@ metricsHandler = get "/metrics" $ do
   -- ^ The first error encountered for each subscription.
     -> [[MetricValueResponse]]
   -- ^ A list of metrics for each resource on each subscription
-    -> ActionT L.Text (AzureM IO) ()
+    -> ActionT L.Text (AppMonad IO) ()
   sendResponse e v = if null e
     then text $ L.intercalate "\n" $ renderMetrics v
     else do
       let firstErr = head e
 
-      azureM $ logMs K.WarningS (pack $ show firstErr)
+      appM $ logMs K.WarningS (renderError firstErr)
 
       status status500
 
@@ -219,6 +228,13 @@ metricsHandler = get "/metrics" $ do
             }
           }
 
+renderError :: R.HttpException -> Text
+renderError (R.VanillaHttpException (HttpExceptionRequest _ content)) =
+  pack $ show content
+renderError (R.VanillaHttpException (InvalidUrlException url reason)) =
+  pack $ "Failed to perform invalid request: " <> url <> " (" <> reason <> ")"
+renderError (R.JsonHttpException e) = pack e
+
 setupLogger :: (Eq a, S.IsString a) => a -> Wai.Middleware
 setupLogger runEnv = if runEnv == "production" then logStdout else logStdoutDev
 
@@ -226,8 +242,8 @@ setupLogEnv :: (Eq a, S.IsString a) => a -> K.Severity -> IO K.LogEnv
 setupLogEnv runEnv sev =
   if runEnv == "production" then prodEnv sev else devEnv sev
 
-runIO :: TVar AppState -> AzureM IO a -> IO a
-runIO state m = runReaderT (runAzureM m) state
+runIO :: TVar AppState -> AppMonad IO a -> IO a
+runIO state m = runReaderT (runAppM m) state
 
 data CliOpts = CliOpts
     { optFile            :: String
@@ -289,6 +305,14 @@ prettyPrintDefinitions r = do
 
       LBS.putStrLn $ encodePretty $ A.object [resourceId .= names]
 
+opts :: Opt.ParserInfo CliOpts
+opts = Opt.info
+  (cliOpts <**> Opt.helper)
+  (  Opt.fullDesc
+  <> Opt.progDesc
+       "Web service that retrieves metrics from Azure and exports them for Prometheus."
+  <> Opt.header ("Azure Exporter :: v" <> showVersion version)
+  )
 
 main :: IO ()
 main = do
@@ -296,29 +320,32 @@ main = do
   port       <- fromInteger <$> readListenPort 3000 "PORT"
   runEnv     <- readRunEnv "dev" "ENV"
   confFile   <- loadConfigFile (optFile parsedOpts)
-  case confFile of
-    Left  err         -> error err
-    Right initialConf -> do
-      logenv <- setupLogEnv
-        runEnv
-        (fromMaybe K.InfoS (K.textToSeverity $ pack $ optLogLevel parsedOpts))
-      validConf     <- validateConfig logenv initialConf
-      initialConfig <- newTVarIO
-        (AppState {clientConfig = validConf, logEnv = logenv})
+  either die (runCommands parsedOpts runEnv port) confFile
 
-      if optListDefinitions parsedOpts
-        then showListDefinitions logenv validConf
-        else scottyT port (runIO initialConfig) (app runEnv)
- where
-  opts = Opt.info
-    (cliOpts <**> Opt.helper)
-    (  Opt.fullDesc
-    <> Opt.progDesc
-         "Web service that retrieves metrics from Azure and exports them for Prometheus."
-    <> Opt.header ("Azure Exporter :: v" <> showVersion version)
-    )
+runCommands
+  :: CliOpts
+     -- ^ CLI configuration.
+  -> String
+     -- ^ Runtime environment (dev or production).
+     -- TODO: Make it a type.
+  -> Int
+     -- ^ Port to listen to.
+  -> [ClientConfig]
+     -- ^ Client configuration per Azure subscription.
+  -> IO ()
+runCommands parsedOpts runEnv port initialConf = do
+  logenv <- setupLogEnv
+    runEnv
+    (fromMaybe K.InfoS (K.textToSeverity $ pack $ optLogLevel parsedOpts))
+  validConf     <- validateConfig logenv initialConf
+  initialConfig <- newTVarIO
+    (AppState {clientConfig = validConf, logEnv = logenv})
 
-app :: String -> ScottyT L.Text (AzureM IO) ()
+  if optListDefinitions parsedOpts
+    then showListDefinitions logenv validConf
+    else scottyT port (runIO initialConfig) (app runEnv)
+
+app :: String -> ScottyT L.Text (AppMonad IO) ()
 app runEnv = do
   -- Setup middlewares.
   middleware (setupLogger runEnv)
