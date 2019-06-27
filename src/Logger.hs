@@ -1,5 +1,6 @@
-{-# LANGUAGE RecordWildCards     #-}
-{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes        #-}
 
 module Logger
   ( devEnv
@@ -24,29 +25,22 @@ import qualified Data.Text.Lazy                as LT
 import           Data.Text.Lazy.IO             as T
 import           System.IO
 
--- TODO: Remove duplication.
-
 logMs :: Katip m => Severity -> Text -> m ()
 logMs sev msg =
   logMsg (Namespace {unNamespace = []}) sev (LogStr {unLogStr = fromText msg})
 
 devEnv :: Severity -> IO LogEnv
-devEnv sev = devLogEnv "" (Environment {getEnvironment = "dev"}) sev V3
+devEnv sev =
+  mkLogEnv writePairLog (Environment {getEnvironment = "dev"}) sev V3
 
 prodEnv :: Severity -> IO LogEnv
-prodEnv sev = prodLogEnv "" (Environment {getEnvironment = "prod"}) sev V3
+prodEnv sev = mkLogEnv writeLog (Environment {getEnvironment = "prod"}) sev V3
 
-devLogEnv :: Text -> Environment -> Severity -> Verbosity -> IO LogEnv
-devLogEnv appName env sev verb = do
-  le <- initLogEnv (Namespace [appName]) env
-  lh <- mkLogScribe stdout sev verb
-  registerScribe "azure-exporter" lh defaultScribeSettings le
-
-prodLogEnv :: Text -> Environment -> Severity -> Verbosity -> IO LogEnv
-prodLogEnv appName env sev verb = do
-  le <- initLogEnv (Namespace [appName]) env
-  lh <- mkJsonLogScribe stdout sev verb
-  registerScribe "azure-exporter" lh defaultScribeSettings le
+mkLogEnv :: WriteLogFn -> Environment -> Severity -> Verbosity -> IO LogEnv
+mkLogEnv fn env sev verb = do
+  logEnv <- initLogEnv (Namespace [""]) env
+  scribe <- mkScribe fn stdout sev verb
+  registerScribe "azure-exporter" scribe defaultScribeSettings logEnv
 
 formatToJson :: Verbosity -> Item a -> HM.HashMap Text Value
 formatToJson _ Item {..} = HM.fromList
@@ -79,14 +73,10 @@ writePairLog lock h verb item =
     $ encodeToLazyText
     $ formatToPairs verb item
 
-mkLogScribe :: Handle -> Severity -> Verbosity -> IO Scribe
-mkLogScribe h sev verb = do
-  hSetBuffering h LineBuffering
-  lock <- newMVar ()
-  pure $ Scribe (writePairLog lock h verb) (hFlush h) (permitItem sev)
+type WriteLogFn = forall a. MVar() -> Handle -> Verbosity -> Item a -> IO ()
 
-mkJsonLogScribe :: Handle -> Severity -> Verbosity -> IO Scribe
-mkJsonLogScribe h sev verb = do
+mkScribe :: WriteLogFn -> Handle -> Severity -> Verbosity -> IO Scribe
+mkScribe wfn h sev verb = do
   hSetBuffering h LineBuffering
   lock <- newMVar ()
-  pure $ Scribe (writeLog lock h verb) (hFlush h) (permitItem sev)
+  pure $ Scribe (wfn lock h verb) (hFlush h) (permitItem sev)
