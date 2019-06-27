@@ -49,7 +49,7 @@ executable azure-exporter
                      , Azure.Client
                      , Paths_azure_exporter
                      , Logger
-  build-depends:       base                   >= 4.11.9 && < 5
+  build-depends:       base                   >= 4.11 && < 5
                      , aeson                  == 1.4.*
                      , aeson-casing           == 0.2.*
                      , bytestring             == 0.10.*
