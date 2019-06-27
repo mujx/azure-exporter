@@ -34,7 +34,8 @@ devEnv sev =
   mkLogEnv writePairLog (Environment {getEnvironment = "dev"}) sev V3
 
 prodEnv :: Severity -> IO LogEnv
-prodEnv sev = mkLogEnv writeLog (Environment {getEnvironment = "prod"}) sev V3
+prodEnv sev =
+  mkLogEnv writeJsonLog (Environment {getEnvironment = "prod"}) sev V3
 
 mkLogEnv :: WriteLogFn -> Environment -> Severity -> Verbosity -> IO LogEnv
 mkLogEnv fn env sev verb = do
@@ -42,36 +43,42 @@ mkLogEnv fn env sev verb = do
   scribe <- mkScribe fn stdout sev verb
   registerScribe "azure-exporter" scribe defaultScribeSettings logEnv
 
-formatToJson :: Verbosity -> Item a -> HM.HashMap Text Value
-formatToJson _ Item {..} = HM.fromList
-  [ ("ts"   , String $ formatAsIso8601 _itemTime)
-  , ("env"  , String $ getEnvironment _itemEnv)
-  , ("level", String $ renderSeverity _itemSeverity)
-  , ("msg"  , String $ LT.toStrict $ toLazyText $ unLogStr _itemMessage)
-  ]
-
-formatToPairs :: Verbosity -> Item a -> Text
-formatToPairs _ Item {..} = unwords $ map
-  (\(k, v) -> k <> "=" <> v)
-  [ ("ts"   , formatAsIso8601 _itemTime)
-  , ("level", renderSeverity _itemSeverity)
-  , ("env"  , getEnvironment _itemEnv)
-  , ("msg"  , LT.toStrict $ toLazyText $ unLogStr _itemMessage)
-  ]
-
-writeLog :: MVar () -> Handle -> Verbosity -> Item a -> IO ()
-writeLog lock h verb item =
+--
+-- Logs in JSON format.
+--
+writeJsonLog :: MVar () -> Handle -> Verbosity -> Item a -> IO ()
+writeJsonLog lock h verb item =
   bracket_ (takeMVar lock) (putMVar lock ())
     $ T.hPutStrLn h
     $ encodeToLazyText
     $ formatToJson verb item
+ where
+  formatToJson :: Verbosity -> Item a -> HM.HashMap Text Value
+  formatToJson _ Item {..} = HM.fromList
+    [ ("ts"   , String $ formatAsIso8601 _itemTime)
+    , ("env"  , String $ getEnvironment _itemEnv)
+    , ("level", String $ renderSeverity _itemSeverity)
+    , ("msg"  , String $ LT.toStrict $ toLazyText $ unLogStr _itemMessage)
+    ]
 
+--
+-- Logs in key/value format e.g env=production app=test-app
+--
 writePairLog :: MVar () -> Handle -> Verbosity -> Item a -> IO ()
 writePairLog lock h verb item =
   bracket_ (takeMVar lock) (putMVar lock ())
     $ T.hPutStrLn h
     $ encodeToLazyText
     $ formatToPairs verb item
+ where
+  formatToPairs :: Verbosity -> Item a -> Text
+  formatToPairs _ Item {..} = unwords $ map
+    (\(k, v) -> k <> "=" <> v)
+    [ ("ts"   , formatAsIso8601 _itemTime)
+    , ("level", renderSeverity _itemSeverity)
+    , ("env"  , getEnvironment _itemEnv)
+    , ("msg"  , LT.toStrict $ toLazyText $ unLogStr _itemMessage)
+    ]
 
 type WriteLogFn = forall a. MVar() -> Handle -> Verbosity -> Item a -> IO ()
 

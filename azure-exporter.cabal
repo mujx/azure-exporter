@@ -18,6 +18,11 @@ Flag dev
   Default:     False
   Manual:      True
 
+Flag static
+  Description: Build statically.
+  Default:     False
+  Manual:      True
+
 executable azure-exporter
   main-is:             Main.hs
   ghc-options:         -Wall
@@ -29,16 +34,22 @@ executable azure-exporter
                        -rtsopts
                        -threaded
                        -with-rtsopts=-N
+  if flag(static)
+    ghc-options:       -threaded -static -O2
+    cc-options:        -static
+    ld-options:        -static -pthread
+
   if flag(dev)
     ghc-options:       -O0
   else
     ghc-options:       -O2
+
   other-modules:       Azure.Exporter
                      , Azure.Config
                      , Azure.Client
                      , Paths_azure_exporter
                      , Logger
-  build-depends:       base                  ^>= 4.12.0 && < 5
+  build-depends:       base                   >= 4.11.9 && < 5
                      , aeson                  == 1.4.*
                      , aeson-casing           == 0.2.*
                      , bytestring             == 0.10.*
