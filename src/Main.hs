@@ -31,7 +31,6 @@ import qualified Data.Aeson.Types              as AT
 import qualified Data.ByteString.Lazy.Char8    as LBS
 import           Data.Either                    ( partitionEithers )
 import           Data.Maybe                     ( fromMaybe )
-import qualified Data.String                   as S
 import           Data.Text                      ( Text
                                                 , pack
                                                 , unpack
@@ -93,11 +92,9 @@ instance (MonadIO m) => K.Katip (AppMonad m) where
 instance (MonadIO m) => R.MonadHttp (AppMonad m) where
     handleHttpException = throw
 
--- Be explicit when we are operating at the 'AzureM' layer.
 appM :: (MonadTrans t, Monad m) => AppMonad m a -> t (AppMonad m) a
 appM = lift
 
--- Helpers to make this feel more like a state monad.
 gets :: MonadIO m => (AppState -> b) -> AppMonad m b
 gets f = f <$> (ask >>= liftIO . readTVarIO)
 
@@ -108,8 +105,12 @@ readListenPort :: Integer -> Text -> IO Integer
 readListenPort defaultPort envVar =
   fromMaybe defaultPort . (readMaybe =<<) <$> lookupEnv (unpack envVar)
 
-readRunEnv :: String -> String -> IO String
-readRunEnv defaultEnv envVar = fromMaybe defaultEnv <$> lookupEnv envVar
+readRunEnv :: String -> IO EnvType
+readRunEnv envVar = toEnvType <$> lookupEnv envVar
+ where
+  toEnvType :: Maybe String -> EnvType
+  toEnvType (Just "production") = Prod
+  toEnvType _                   = Dev
 
 validateConfig :: K.LogEnv -> [ClientConfig] -> IO [ClientConfig]
 validateConfig le c = do
@@ -118,10 +119,9 @@ validateConfig le c = do
 
 -- Check if the Http exception contains an 401 status code.
 is401 :: R.HttpException -> Bool
-is401 e = case e of
-  R.VanillaHttpException (HttpExceptionRequest _ (StatusCodeException res _))
-    -> statusCode (responseStatus res) == 401
-  _ -> False
+is401 (R.VanillaHttpException (HttpExceptionRequest _ (StatusCodeException res _)))
+  = statusCode (responseStatus res) == 401
+is401 _ = False
 
 collectMetrics :: ClientConfig -> HttpM [MetricValueResponse]
 collectMetrics conf = do
@@ -235,12 +235,13 @@ renderError (R.VanillaHttpException (InvalidUrlException url reason)) =
   pack $ "Failed to perform invalid request: " <> url <> " (" <> reason <> ")"
 renderError (R.JsonHttpException e) = pack e
 
-setupLogger :: (Eq a, S.IsString a) => a -> Wai.Middleware
-setupLogger runEnv = if runEnv == "production" then logStdout else logStdoutDev
+setupLogger :: EnvType -> Wai.Middleware
+setupLogger Prod = logStdout
+setupLogger Dev  = logStdoutDev
 
-setupLogEnv :: (Eq a, S.IsString a) => a -> K.Severity -> IO K.LogEnv
-setupLogEnv runEnv sev =
-  if runEnv == "production" then prodEnv sev else devEnv sev
+setupLogEnv :: EnvType -> K.Severity -> IO K.LogEnv
+setupLogEnv Prod = prodEnv
+setupLogEnv Dev  = devEnv
 
 runIO :: TVar AppState -> AppMonad IO a -> IO a
 runIO state m = runReaderT (runAppM m) state
@@ -318,16 +319,17 @@ main :: IO ()
 main = do
   parsedOpts <- Opt.execParser opts
   port       <- fromInteger <$> readListenPort 3000 "PORT"
-  runEnv     <- readRunEnv "dev" "ENV"
+  runEnv     <- readRunEnv "ENV"
   confFile   <- loadConfigFile (optFile parsedOpts)
   either die (runCommands parsedOpts runEnv port) confFile
+
+data EnvType = Dev | Prod deriving (Show, Eq)
 
 runCommands
   :: CliOpts
      -- ^ CLI configuration.
-  -> String
+  -> EnvType
      -- ^ Runtime environment (dev or production).
-     -- TODO: Make it a type.
   -> Int
      -- ^ Port to listen to.
   -> [ClientConfig]
@@ -345,7 +347,7 @@ runCommands parsedOpts runEnv port initialConf = do
     then showListDefinitions logenv validConf
     else scottyT port (runIO initialConfig) (app runEnv)
 
-app :: String -> ScottyT L.Text (AppMonad IO) ()
+app :: EnvType -> ScottyT L.Text (AppMonad IO) ()
 app runEnv = do
   -- Setup middlewares.
   middleware (setupLogger runEnv)
