@@ -6,7 +6,7 @@ synopsis:            Prometheus metrics exporter for Azure
 description:         Web service that collects metrics from Azure resources for Prometheus.
 homepage:            https://github/mujx/azure-exporter
 bug-reports:         https://github/mujx/azure-exporter/issues
-license:             UNLICENSE
+license:             Unlicense
 license-file:        UNLICENSE
 author:              Konstantinos Sideris <siderisk@auth.gr>
 maintainer:          Konstantinos Sideris <siderisk@auth.gr>
